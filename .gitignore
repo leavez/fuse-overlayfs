@@ -18,3 +18,4 @@ lib/Makefile.in
 lib/limits.h
 lib/sys/types.h
 stamp-h1
+build
