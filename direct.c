@@ -45,14 +45,14 @@ direct_listxattr (struct ovl_layer *l, const char *path, char *buf, size_t size)
 {
   char full_path[PATH_MAX];
   int ret;
-  ret = snprintf (full_path, sizeof (full_path), "/proc/self/fd/%d/%s", l->fd, path);
+  ret = snprintf (full_path, sizeof (full_path), "%s/%s", l->path, path);
   if (ret >= sizeof (full_path))
     {
       errno = ENAMETOOLONG;
       return -1;
     }
 
-  return llistxattr (full_path, buf, size);
+  return listxattr(full_path, buf, size, XATTR_NOFOLLOW);
 }
 
 static int
@@ -60,13 +60,13 @@ direct_getxattr (struct ovl_layer *l, const char *path, const char *name, char *
 {
   char full_path[PATH_MAX];
   int ret;
-  ret = snprintf (full_path, sizeof (full_path), "/proc/self/fd/%d/%s", l->fd, path);
+  ret = snprintf (full_path, sizeof (full_path), "%s/%s", l->path, path);
   if (ret >= sizeof (full_path))
     {
       errno = ENAMETOOLONG;
       return -1;
     }
-  return lgetxattr (full_path, name, buf, size);
+  return getxattr (full_path, name, buf, size, 0, XATTR_NOFOLLOW);
 }
 
 static int
@@ -184,11 +184,11 @@ direct_load_data_source (struct ovl_layer *l, const char *opaque, const char *pa
       return l->fd;
     }
 
-  if (fgetxattr (l->fd, XATTR_PRIVILEGED_OVERRIDE_STAT, tmp, sizeof (tmp)) >= 0)
+  if (fgetxattr (l->fd, XATTR_PRIVILEGED_OVERRIDE_STAT, tmp, sizeof (tmp), 0, 0) >= 0)
     l->stat_override_mode = STAT_OVERRIDE_PRIVILEGED;
-  else if (fgetxattr (l->fd, XATTR_OVERRIDE_STAT, tmp, sizeof (tmp)) >= 0)
+  else if (fgetxattr (l->fd, XATTR_OVERRIDE_STAT, tmp, sizeof (tmp), 0, 0) >= 0)
     l->stat_override_mode = STAT_OVERRIDE_USER;
-  else if (fgetxattr (l->fd, XATTR_OVERRIDE_CONTAINERS_STAT, tmp, sizeof (tmp)) >= 0)
+  else if (fgetxattr (l->fd, XATTR_OVERRIDE_CONTAINERS_STAT, tmp, sizeof (tmp), 0, 0) >= 0)
     l->stat_override_mode = STAT_OVERRIDE_CONTAINERS;
 
   return 0;
@@ -211,7 +211,7 @@ direct_support_acls (struct ovl_layer *l)
 {
   char value[32];
 
-  return fgetxattr (l->fd, ACL_XATTR, value, sizeof (value)) >= 0
+  return fgetxattr (l->fd, ACL_XATTR, value, sizeof (value), 0, 0) >= 0
          || errno != ENOTSUP;
 }
 

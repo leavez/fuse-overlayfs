@@ -24,12 +24,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
-#include <sys/sysmacros.h>
+//#include <sys/sysmacros.h>
 #include <sys/syscall.h>
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/xattr.h>
+
+
 
 #ifndef TEMP_FAILURE_RETRY
 #  define TEMP_FAILURE_RETRY(expression) \
@@ -51,46 +53,26 @@
 #  define O_TMPFILE (020000000 | O_DIRECTORY)
 #endif
 
-/* List of all valid flags for the open/openat flags argument: */
-#define VALID_OPEN_FLAGS \
-  (O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC | O_APPEND | O_NDELAY | O_NONBLOCK | O_NDELAY | O_SYNC | O_DSYNC | FASYNC | O_DIRECT | O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_NOATIME | O_CLOEXEC | O_PATH | O_TMPFILE)
 
-static int
-syscall_openat2 (int dirfd, const char *path, uint64_t flags, uint64_t mode, uint64_t resolve)
-{
-  struct openat2_open_how
-  {
-    uint64_t flags;
-    uint64_t mode;
-    uint64_t resolve;
-  } how = {
-    .flags = flags & VALID_OPEN_FLAGS,
-    .mode = (flags & O_CREAT) ? (mode & 07777) : 0,
-    .resolve = resolve,
-  };
-
-  return (int) syscall (__NR_openat2, dirfd, path, &how, sizeof (how), 0);
-}
-
-int
+inline int
 safe_openat (int dirfd, const char *pathname, int flags, mode_t mode)
 {
-  static bool openat2_supported = true;
-
-  if (openat2_supported)
-    {
-      int ret;
-
-      ret = syscall_openat2 (dirfd, pathname, flags, mode, RESOLVE_IN_ROOT);
-      if (ret < 0)
-        {
-          if (errno == ENOSYS)
-            openat2_supported = false;
-          if (errno == ENOSYS || errno == EINVAL)
-            goto fallback;
-        }
-      return ret;
-    }
+//  static bool openat2_supported = true;
+//
+//  if (openat2_supported)
+//    {
+//      int ret;
+//
+//      ret = syscall_openat2 (dirfd, pathname, flags, mode, RESOLVE_IN_ROOT);
+//      if (ret < 0)
+//        {
+//          if (errno == ENOSYS)
+//            openat2_supported = false;
+//          if (errno == ENOSYS || errno == EINVAL)
+//            goto fallback;
+//        }
+//      return ret;
+//    }
 fallback:
   return openat (dirfd, pathname, flags, mode);
 }
@@ -269,13 +251,13 @@ override_mode (struct ovl_layer *l, int fd, const char *abs_path, const char *pa
 
   if (fd >= 0)
     {
-      ret = fgetxattr (fd, xattr_name, buf, sizeof (buf) - 1);
+      ret = fgetxattr (fd, xattr_name, buf, sizeof (buf) - 1, 0, 0);
       if (ret < 0)
         return ret;
     }
   else if (abs_path)
     {
-      ret = lgetxattr (abs_path, xattr_name, buf, sizeof (buf) - 1);
+      ret = getxattr (abs_path, xattr_name, buf, sizeof (buf) - 1, 0, XATTR_NOFOLLOW);
       if (ret < 0)
         return ret;
     }
@@ -290,10 +272,10 @@ override_mode (struct ovl_layer *l, int fd, const char *abs_path, const char *pa
       fd = cleanup_fd;
 
       if (fd >= 0)
-        ret = fgetxattr (fd, xattr_name, buf, sizeof (buf) - 1);
+        ret = fgetxattr (fd, xattr_name, buf, sizeof (buf) - 1, 0, 0);
       else
         {
-          ret = lgetxattr (full_path, xattr_name, buf, sizeof (buf) - 1);
+          ret = getxattr (full_path, xattr_name, buf, sizeof (buf) - 1, 0, XATTR_NOFOLLOW);
           if (ret < 0 && errno == ENODATA)
             return 0;
         }
