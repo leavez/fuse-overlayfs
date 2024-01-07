@@ -20,7 +20,7 @@
 #define _GNU_SOURCE
 
 #include <sys/stat.h>
-#include <plugin-manager.h>
+#include "plugin-manager.h"
 #include <stdbool.h>
 #include <sys/types.h>
 

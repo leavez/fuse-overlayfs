@@ -19,9 +19,9 @@
 #define _FILE_OFFSET_BITS 64
 
 #include <config.h>
-#include <plugin.h>
+#include "plugin.h"
 #include <stdlib.h>
-#include <fuse_overlayfs_error.h>
+#include "fuse_overlayfs_error.h"
 #include <errno.h>
 #include <string.h>
 

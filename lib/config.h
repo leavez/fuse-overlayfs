@@ -20,6 +20,8 @@
 /* Use the same hashing function as GNU diff */
 #define USE_DIFF_HASH 1
 
+//#define HAVE_SYS_SENDFILE_H 1
+
 // ---------------------
 
 /* Name of package */
@@ -45,3 +47,5 @@
 
 /* Version number of package */
 #define VERSION "1.13-dev"
+
+#define PKGLIBEXECDIR "/usr/local/libexec"
