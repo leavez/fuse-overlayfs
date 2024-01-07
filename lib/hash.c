@@ -26,7 +26,7 @@
 
 #include "hash.h"
 
-#include "bitrotate.h"
+//#include "bitrotate.h"
 #include "xalloc-oversized.h"
 
 #include <stdint.h>
@@ -42,6 +42,33 @@
 #  define obstack_chunk_free free
 # endif
 #endif
+
+
+
+#define _GL_ATTRIBUTE_CONST __attribute__ ((__const__))
+#define _GL_ATTRIBUTE_PURE __attribute__ ((__pure__))
+
+#include <stdint.h>
+#include <limits.h>
+/* Given a size_t argument X, return the value corresponding
+   to rotating the bits N steps to the left.  N must be between 1 and
+   (CHAR_BIT * sizeof (size_t) - 1) inclusive.  */
+size_t
+rotl_sz (size_t x, int n)
+{
+  return ((x << n) | (x >> ((CHAR_BIT * sizeof x) - n))) & SIZE_MAX;
+}
+
+/* Given a size_t argument X, return the value corresponding
+   to rotating the bits N steps to the right.  N must be between 1 to
+   (CHAR_BIT * sizeof (size_t) - 1) inclusive.  */
+size_t
+rotr_sz (size_t x, int n)
+{
+  return ((x >> n) | (x << ((CHAR_BIT * sizeof x) - n))) & SIZE_MAX;
+}
+
+
 
 struct hash_entry
   {
