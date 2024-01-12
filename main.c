@@ -27,6 +27,7 @@
 #include "fuse-overlayfs.h"
 
 #include <fuse_lowlevel.h>
+#include <fuse_opt.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -37,15 +38,13 @@
 #include <dirent.h>
 #include <assert.h>
 #include <errno.h>
-#include <linux/magic.h>
+// #include <linux/magic.h>
 #include <err.h>
-#include <sys/vfs.h>
+// #include <sys/vfs.h>
 #include <sys/ioctl.h>
-#ifdef HAVE_SYS_SENDFILE_H
-#  include <sys/sendfile.h>
-#endif
+#include <sys/vnode.h>
 
-#include <fuse_overlayfs_error.h>
+#include "fuse_overlayfs_error.h"
 
 #include <inttypes.h>
 #include <fcntl.h>
@@ -56,15 +55,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
-#include <sys/sysmacros.h>
+#include <sys/clonefile.h>
+// #include <sys/sysmacros.h>
 #include <sys/xattr.h>
-#include <linux/fs.h>
+// #include <linux/fs.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <pthread.h>
 
-#include <utils.h>
-#include <plugin.h>
+#include "utils.h"
+#include "plugin.h"
 
 #ifndef TEMP_FAILURE_RETRY
 #  define TEMP_FAILURE_RETRY(expression) \
@@ -109,34 +109,6 @@ cleanup_lockp (int *l)
 
 #define cleanup_lock __attribute__ ((cleanup (cleanup_lockp)))
 
-#ifndef HAVE_OPEN_BY_HANDLE_AT
-struct file_handle
-{
-  unsigned int handle_bytes; /* Size of f_handle [in, out] */
-  int handle_type;           /* Handle type [out] */
-  unsigned char f_handle[0]; /* File identifier (sized by
-                                caller) [out] */
-};
-
-int
-open_by_handle_at (int mount_fd, struct file_handle *handle, int flags)
-{
-  return syscall (SYS_open_by_handle_at, mount_fd, handle, flags);
-}
-#endif
-
-#ifndef RENAME_NOREPLACE
-#  define RENAME_NOREPLACE (1 << 0)
-#endif
-
-#ifndef RENAME_EXCHANGE
-#  define RENAME_EXCHANGE (1 << 1)
-#endif
-
-#ifndef RENAME_WHITEOUT
-#  define RENAME_WHITEOUT (1 << 2)
-#endif
-
 #define XATTR_PREFIX "user.fuseoverlayfs."
 #define ORIGIN_XATTR "user.fuseoverlayfs.origin"
 #define OPAQUE_XATTR "user.fuseoverlayfs.opaque"
@@ -163,8 +135,8 @@ struct _uintptr_to_must_hold_fuse_ino_t_dummy_struct
 };
 #endif
 
-static uid_t overflow_uid;
-static gid_t overflow_gid;
+static uid_t overflow_uid = -2; // nobody ??
+static gid_t overflow_gid = -2; // nobody ??
 
 static struct ovl_ino dummy_ino;
 
@@ -292,32 +264,6 @@ inode_to_node (struct ovl_data *lo, ino_t n)
 }
 
 static void
-check_writeable_proc ()
-{
-  struct statfs svfs;
-  int ret;
-
-  ret = statfs ("/proc", &svfs);
-  if (ret < 0)
-    {
-      fprintf (stderr, "error stating /proc: %m\n");
-      return;
-    }
-
-  if (svfs.f_type != PROC_SUPER_MAGIC)
-    {
-      fprintf (stderr, "invalid file system type found on /proc: %d, expected %d\n", svfs.f_fsid, PROC_SUPER_MAGIC);
-      return;
-    }
-
-  if (svfs.f_flags & ST_RDONLY)
-    {
-      fprintf (stderr, "/proc seems to be mounted as readonly, it can lead to unexpected failures");
-      return;
-    }
-}
-
-static void
 check_can_mknod (struct ovl_data *lo)
 {
   int ret;
@@ -439,13 +385,6 @@ read_file_as_int (const char *file)
   return ret;
 }
 
-static void
-read_overflowids (void)
-{
-  overflow_uid = read_file_as_int ("/proc/sys/kernel/overflowuid");
-  overflow_gid = read_file_as_int ("/proc/sys/kernel/overflowgid");
-}
-
 static bool
 ovl_debug (fuse_req_t req)
 {
@@ -457,15 +396,15 @@ ovl_init (void *userdata, struct fuse_conn_info *conn)
 {
   struct ovl_data *lo = (struct ovl_data *) userdata;
 
-  if ((conn->capable & FUSE_CAP_WRITEBACK_CACHE) == 0)
-    lo->writeback = 0;
+  //  if ((conn->capable & FUSE_CAP_WRITEBACK_CACHE) == 0)
+  lo->writeback = 0;
 
-  if ((lo->noacl == 0) && (conn->capable & FUSE_CAP_POSIX_ACL))
-    conn->want |= FUSE_CAP_POSIX_ACL;
+  //  if ((lo->noacl == 0) && (conn->capable & FUSE_CAP_POSIX_ACL))
+  //    conn->want |= FUSE_CAP_POSIX_ACL;
 
-  conn->want |= FUSE_CAP_DONT_MASK | FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE;
-  if (lo->writeback)
-    conn->want |= FUSE_CAP_WRITEBACK_CACHE;
+  conn->want |= FUSE_CAP_DONT_MASK | FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE; // ??
+  //  if (lo->writeback)
+  //    conn->want |= FUSE_CAP_WRITEBACK_CACHE;
 }
 
 static struct ovl_layer *
@@ -565,9 +504,9 @@ write_permission_xattr (struct ovl_data *lo, int fd, const char *path, uid_t uid
 
   len = sprintf (buf, "%d:%d:%o", uid, gid, mode);
   if (fd >= 0)
-    return fsetxattr (fd, name, buf, len, 0);
+    return fsetxattr (fd, name, buf, len, 0, 0);
 
-  ret = lsetxattr (path, name, buf, len, 0);
+  ret = setxattr (path, name, buf, len, 0, XATTR_NOFOLLOW);
   /* Ignore EPERM in unprivileged mode.  */
   if (ret < 0 && lo->xattr_permissions == 2 && errno == EPERM)
     return 0;
@@ -606,13 +545,11 @@ do_fchownat (struct ovl_data *lo, int dfd, const char *path, uid_t uid, gid_t gi
   int ret;
   if (lo->xattr_permissions)
     {
-      char proc_path[32];
-      cleanup_close int fd = openat (dfd, path, O_NOFOLLOW | O_PATH);
+      cleanup_close int fd = openat (dfd, path, O_NOFOLLOW | O_WRONLY);
       if (fd < 0)
         return fd;
 
-      sprintf (proc_path, "/proc/self/fd/%d", fd);
-      ret = write_permission_xattr (lo, -1, proc_path, uid, gid, mode);
+      ret = write_permission_xattr (lo, fd, NULL, uid, gid, mode);
     }
   else
     ret = fchownat (dfd, path, uid, gid, flags);
@@ -680,7 +617,7 @@ set_fd_origin (int fd, const char *origin)
   size_t len = strlen (origin) + 1;
   int ret;
 
-  ret = fsetxattr (fd, ORIGIN_XATTR, origin, len, 0);
+  ret = fsetxattr (fd, ORIGIN_XATTR, origin, len, 0, 0);
   if (ret < 0)
     {
       if (errno == ENOTSUP)
@@ -695,12 +632,12 @@ set_fd_opaque (int fd)
   cleanup_close int opq_whiteout_fd = -1;
   int ret;
 
-  ret = fsetxattr (fd, PRIVILEGED_OPAQUE_XATTR, "y", 1, 0);
+  ret = fsetxattr (fd, PRIVILEGED_OPAQUE_XATTR, "y", 1, 0, 0);
   if (ret < 0)
     {
       if (errno == ENOTSUP)
         goto create_opq_whiteout;
-      if (errno != EPERM || (fsetxattr (fd, OPAQUE_XATTR, "y", 1, 0) < 0 && errno != ENOTSUP))
+      if (errno != EPERM || (fsetxattr (fd, OPAQUE_XATTR, "y", 1, 0, 0) < 0 && errno != ENOTSUP))
         return -1;
     }
 create_opq_whiteout:
@@ -715,6 +652,7 @@ is_directory_opaque (struct ovl_layer *l, const char *path)
   ssize_t s;
 
   s = l->ds->getxattr (l, path, PRIVILEGED_OPAQUE_XATTR, b, sizeof (b));
+  printf("%d", errno);
   if (s < 0 && errno == ENODATA)
     s = l->ds->getxattr (l, path, UNPRIVILEGED_OPAQUE_XATTR, b, sizeof (b));
   if (s < 0 && errno == ENODATA)
@@ -1083,13 +1021,6 @@ drop_node_from_ino (Hash_table *inodes, struct ovl_node *node)
 }
 
 static int
-direct_renameat2 (int olddirfd, const char *oldpath,
-                  int newdirfd, const char *newpath, unsigned int flags)
-{
-  return syscall (SYS_renameat2, olddirfd, oldpath, newdirfd, newpath, flags);
-}
-
-static int
 hide_node (struct ovl_data *lo, struct ovl_node *node, bool unlink_src)
 {
   char *newpath = NULL;
@@ -1124,11 +1055,11 @@ hide_node (struct ovl_data *lo, struct ovl_node *node, bool unlink_src)
       if (needs_whiteout)
         {
           /* If the atomic rename+mknod failed, then fallback into doing it in two steps.  */
-          if (can_mknod && syscall (SYS_renameat2, node_dirfd (node), node->path, lo->workdir_fd, newpath, RENAME_WHITEOUT) == 0)
-            {
-              whiteout_created = true;
-              moved = true;
-            }
+          //          if (can_mknod && syscall (SYS_renameat2, node_dirfd (node), node->path, lo->workdir_fd, newpath, RENAME_WHITEOUT) == 0)
+          //            {
+          //              whiteout_created = true;
+          //              moved = true;
+          //            }
 
           if (! whiteout_created)
             {
@@ -1428,7 +1359,7 @@ safe_read_xattr (char **ret, int sfd, const char *name, size_t initial_size)
     {
       char *tmp;
 
-      s = fgetxattr (sfd, name, buffer, current_size);
+      s = fgetxattr (sfd, name, buffer, current_size, 0, 0);
       if (s >= 0 && s < current_size)
         break;
 
@@ -1571,39 +1502,39 @@ make_ovl_node (struct ovl_data *lo, const char *path, struct ovl_layer *layer, c
             }
 
           s = safe_read_xattr (&val, fd, PRIVILEGED_ORIGIN_XATTR, PATH_MAX);
-          if (s > 0)
-            {
-              char buf[512];
-              struct ovl_fh *ofh = (struct ovl_fh *) val;
-              size_t s = ofh->len - sizeof (*ofh);
-              struct file_handle *fh = (struct file_handle *) buf;
-
-              if (s < sizeof (buf) - sizeof (int) * 2)
-                {
-                  cleanup_close int originfd = -1;
-
-                  /*
-                    overlay in the kernel stores a file handle in the .origin xattr.
-                    Honor it when present, but don't fail on errors as an unprivileged
-                    user cannot open a file handle.
-                  */
-                  fh->handle_bytes = s;
-                  fh->handle_type = ofh->type;
-                  memcpy (fh->f_handle, ofh->fid, s);
-
-                  originfd = open_by_handle_at (AT_FDCWD, fh, O_RDONLY);
-                  if (originfd >= 0)
-                    {
-                      if (it->ds->fstat (it, originfd, npath, STATX_TYPE | STATX_MODE | STATX_INO, &st) == 0)
-                        {
-                          ret->tmp_ino = st.st_ino;
-                          ret->tmp_dev = st.st_dev;
-                          mode = st.st_mode;
-                          break;
-                        }
-                    }
-                }
-            }
+          //          if (s > 0) // TODO??
+          //            {
+          //              char buf[512];
+          //              struct ovl_fh *ofh = (struct ovl_fh *) val;
+          //              size_t s = ofh->len - sizeof (*ofh);
+          //              struct file_handle *fh = (struct file_handle *) buf;
+          //
+          //              if (s < sizeof (buf) - sizeof (int) * 2)
+          //                {
+          //                  cleanup_close int originfd = -1;
+          //
+          //                  /*
+          //                    overlay in the kernel stores a file handle in the .origin xattr.
+          //                    Honor it when present, but don't fail on errors as an unprivileged
+          //                    user cannot open a file handle.
+          //                  */
+          //                  fh->handle_bytes = s;
+          //                  fh->handle_type = ofh->type;
+          //                  memcpy (fh->f_handle, ofh->fid, s);
+          //
+          //                  originfd = open_by_handle_at (AT_FDCWD, fh, O_RDONLY);
+          //                  if (originfd >= 0)
+          //                    {
+          //                      if (it->ds->fstat (it, originfd, npath, STATX_TYPE | STATX_MODE | STATX_INO, &st) == 0)
+          //                        {
+          //                          ret->tmp_ino = st.st_ino;
+          //                          ret->tmp_dev = st.st_dev;
+          //                          mode = st.st_mode;
+          //                          break;
+          //                        }
+          //                    }
+          //                }
+          //            }
 
           /* If an origin is specified, use it for the next layer lookup.  */
           s = safe_read_xattr (&origin, fd, ORIGIN_XATTR, PATH_MAX);
@@ -2462,36 +2393,37 @@ ovl_do_readdir (fuse_req_t req, fuse_ino_t ino, size_t size,
 
           entsize = fuse_add_direntry (req, p, remaining, name, st, offset + 1);
         }
-      else
-        {
-          if (! lo->static_nlink && node_dirp (node))
-            {
-              node = reload_dir (lo, node);
-              if (node == NULL)
-                {
-                  fuse_reply_err (req, errno);
-                  return;
-                }
-            }
-          memset (&e, 0, sizeof (e));
-          ret = rpl_stat (req, node, -1, NULL, NULL, st);
-          if (ret < 0)
-            {
-              fuse_reply_err (req, errno);
-              return;
-            }
-
-          e.attr_timeout = get_timeout (lo);
-          e.entry_timeout = get_timeout (lo);
-          e.ino = node_to_inode (node);
-          entsize = fuse_add_direntry_plus (req, p, remaining, name, &e, offset + 1);
-          if (entsize <= remaining)
-            {
-              /* First two entries are . and .. */
-              if (offset >= 2)
-                node->ino->lookups++;
-            }
-        }
+      //      else
+      //        {
+      //          if (! lo->static_nlink && node_dirp (node))
+      //            {
+      //              node = reload_dir (lo, node);
+      //              if (node == NULL)
+      //                {
+      //                  fuse_reply_err (req, errno);
+      //                  return;
+      //                }
+      //            }
+      //          memset (&e, 0, sizeof (e));
+      //          ret = rpl_stat (req, node, -1, NULL, NULL, st);
+      //          if (ret < 0)
+      //            {
+      //              fuse_reply_err (req, errno);
+      //              return;
+      //            }
+      //
+      //          e.attr_timeout = get_timeout (lo);
+      //          e.entry_timeout = get_timeout (lo);
+      //          e.ino = node_to_inode (node);
+      //
+      //          entsize = fuse_add_direntry_plus (req, p, remaining, name, &e, offset + 1);
+      //          if (entsize <= remaining)
+      //            {
+      //              /* First two entries are . and .. */
+      //              if (offset >= 2)
+      //                node->ino->lookups++;
+      //            }
+      //        }
 
       if (entsize > remaining)
         break;
@@ -2512,15 +2444,15 @@ ovl_readdir (fuse_req_t req, fuse_ino_t ino, size_t size,
   ovl_do_readdir (req, ino, size, offset, fi, 0);
 }
 
-static void
-ovl_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size,
-                 off_t offset, struct fuse_file_info *fi)
-{
-  cleanup_lock int l = enter_big_lock ();
-  if (UNLIKELY (ovl_debug (req)))
-    fprintf (stderr, "ovl_readdirplus(ino=%" PRIu64 ", size=%zu, offset=%lo)\n", ino, size, offset);
-  ovl_do_readdir (req, ino, size, offset, fi, 1);
-}
+// static void
+// ovl_readdirplus (fuse_req_t req, fuse_ino_t ino, size_t size,
+//                  off_t offset, struct fuse_file_info *fi)
+//{
+//   cleanup_lock int l = enter_big_lock ();
+//   if (UNLIKELY (ovl_debug (req)))
+//     fprintf (stderr, "ovl_readdirplus(ino=%" PRIu64 ", size=%zu, offset=%lo)\n", ino, size, offset);
+//   ovl_do_readdir (req, ino, size, offset, fi, 1);
+// }
 
 static void
 ovl_releasedir (fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
@@ -2575,9 +2507,9 @@ inherit_acl (struct ovl_data *lo, struct ovl_node *parent, int targetfd, const c
       return -1;
     }
   if (targetfd >= 0)
-    return fsetxattr (targetfd, ACL_XATTR, v, s, 0);
+    return fsetxattr (targetfd, ACL_XATTR, v, s, 0, 0);
 
-  return setxattr (path, ACL_XATTR, v, s, 0);
+  return setxattr (path, ACL_XATTR, v, s, 0, 0);
 }
 
 /* in-place filter xattrs that cannot be accessed.  */
@@ -2657,7 +2589,7 @@ ovl_listxattr (fuse_req_t req, fuse_ino_t ino, size_t size)
     {
       char path[PATH_MAX];
       strconcat3 (path, PATH_MAX, lo->workdir, "/", node->path);
-      ret = listxattr (path, buf, size);
+      ret = listxattr (path, buf, size, 0);
     }
   if (ret < 0)
     {
@@ -2721,7 +2653,7 @@ ovl_getxattr (fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
     {
       char path[PATH_MAX];
       strconcat3 (path, PATH_MAX, lo->workdir, "/", node->path);
-      ret = getxattr (path, name, buf, size);
+      ret = getxattr (path, name, buf, size, 0, 0);
     }
 
   if (ret < 0)
@@ -2760,7 +2692,7 @@ copy_xattr (int sfd, int dfd, char *buf, size_t buf_size)
 {
   ssize_t xattr_len;
 
-  xattr_len = flistxattr (sfd, buf, buf_size);
+  xattr_len = flistxattr (sfd, buf, buf_size, 0);
   if (xattr_len > 0)
     {
       char *it;
@@ -2780,7 +2712,7 @@ copy_xattr (int sfd, int dfd, char *buf, size_t buf_size)
               return -1;
             }
 
-          if (fsetxattr (dfd, it, v, s, 0) < 0)
+          if (fsetxattr (dfd, it, v, s, 0, 0) < 0)
             {
               if (errno == EINVAL || errno == EOPNOTSUPP)
                 continue;
@@ -2951,7 +2883,7 @@ create_directory (struct ovl_data *lo, int dirfd, const char *name, const struct
         {
           int dfd = -1;
 
-          ret = direct_renameat2 (lo->workdir_fd, wd_tmp_file_name, dirfd, name, RENAME_EXCHANGE);
+          ret = renameatx_np (lo->workdir_fd, wd_tmp_file_name, dirfd, name, RENAME_SWAP);
           if (ret < 0)
             goto out;
 
@@ -3007,8 +2939,8 @@ create_node_directory (struct ovl_data *lo, struct ovl_node *src)
   if (ret < 0)
     return ret;
 
-  times[0] = st.st_atim;
-  times[1] = st.st_mtim;
+  times[0] = st.st_atimespec;
+  times[1] = st.st_mtimespec;
 
   if (override_mode (src->layer, sfd, NULL, NULL, &st) < 0 && errno != ENODATA && errno != EOPNOTSUPP)
     return -1;
@@ -3130,7 +3062,31 @@ copyup (struct ovl_data *lo, struct ovl_node *node)
   if (sfd < 0)
     goto exit;
 
-  ret = dfd = TEMP_FAILURE_RETRY (safe_openat (lo->workdir_fd, wd_tmp_file_name, O_CREAT | O_WRONLY, mode));
+  if (support_reflinks)
+    {
+      for (int i = 0; i < 2; i++)
+        {
+          if (fclonefileat (sfd, lo->workdir_fd, wd_tmp_file_name, CLONE_ACL) >= 0)
+            data_copied = true;
+          else if (errno == ENOTSUP || errno == EINVAL)
+            {
+              /* Fallback to data copy and don't attempt again FICLONE.  */
+              support_reflinks = false;
+              break;
+            }
+          else if (errno == EEXIST)
+            {
+              if (unlinkat (lo->workdir_fd, wd_tmp_file_name, 0) < 0)
+                goto exit;
+            }
+          else
+            {
+              break;
+            }
+        }
+    }
+
+  ret = dfd = TEMP_FAILURE_RETRY (safe_openat (lo->workdir_fd, wd_tmp_file_name, O_WRONLY, mode));
   if (dfd < 0)
     goto exit;
 
@@ -3144,17 +3100,6 @@ copyup (struct ovl_data *lo, struct ovl_node *node)
   buf = malloc (buf_size);
   if (buf == NULL)
     goto exit;
-
-  if (support_reflinks)
-    {
-      if (ioctl (dfd, FICLONE, sfd) >= 0)
-        data_copied = true;
-      else if (errno == ENOTSUP || errno == EINVAL)
-        {
-          /* Fallback to data copy and don't attempt again FICLONE.  */
-          support_reflinks = false;
-        }
-    }
 
 #ifdef HAVE_SYS_SENDFILE_H
   if (! data_copied)
@@ -3186,8 +3131,8 @@ copyup (struct ovl_data *lo, struct ovl_node *node)
         goto exit;
     }
 
-  times[0] = st.st_atim;
-  times[1] = st.st_mtim;
+  times[0] = st.st_atimespec;
+  times[1] = st.st_mtimespec;
   ret = futimens (dfd, times);
   if (ret < 0)
     goto exit;
@@ -3460,9 +3405,9 @@ direct_setxattr (struct ovl_layer *l, const char *path, const char *name, const 
     return ret;
 
   if (fd >= 0)
-    return fsetxattr (fd, name, buf, size, flags);
+    return fsetxattr (fd, name, buf, size, 0, flags);
 
-  return setxattr (full_path, name, buf, size, flags);
+  return setxattr (full_path, name, buf, size, 0, flags);
 }
 
 static void
@@ -3510,7 +3455,7 @@ ovl_setxattr (fuse_req_t req, fuse_ino_t ino, const char *name,
     {
       char path[PATH_MAX];
       strconcat3 (path, PATH_MAX, lo->workdir, "/", node->path);
-      ret = setxattr (path, name, value, size, flags);
+      ret = setxattr (path, name, value, size, 0, flags);
     }
   if (ret < 0)
     {
@@ -3534,9 +3479,9 @@ direct_removexattr (struct ovl_layer *l, const char *path, const char *name)
     return ret;
 
   if (fd >= 0)
-    return fremovexattr (fd, name);
+    return fremovexattr (fd, name, 0);
 
-  return lremovexattr (full_path, name);
+  return removexattr (full_path, name, XATTR_NOFOLLOW);
 }
 
 static void
@@ -3570,7 +3515,7 @@ ovl_removexattr (fuse_req_t req, fuse_ino_t ino, const char *name)
     {
       char path[PATH_MAX];
       strconcat3 (path, PATH_MAX, lo->workdir, "/", node->path);
-      ret = removexattr (path, name);
+      ret = removexattr (path, name, 0);
     }
 
   if (ret < 0)
@@ -3641,7 +3586,7 @@ ovl_do_open (fuse_req_t req, fuse_ino_t parent, const char *name, int flags, mod
 
   flags |= O_NOFOLLOW;
 
-  flags &= ~O_DIRECT;
+  //  flags &= ~O_DIRECT; ??
 
   if (lo->writeback)
     {
@@ -4035,10 +3980,10 @@ ovl_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set, stru
       return;
     }
 
-  if (to_set & FUSE_SET_ATTR_CTIME)
-    {
-      /* Ignore request.  */
-    }
+  //  if (to_set & FUSE_SET_ATTR_CTIME) ??
+  //    {
+  //      /* Ignore request.  */
+  //    }
 
   uid = -1;
   gid = -1;
@@ -4085,13 +4030,12 @@ ovl_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set, stru
           break;
 
         case S_IFLNK:
-          cleaned_up_fd = TEMP_FAILURE_RETRY (safe_openat (dirfd, node->path, O_PATH | O_NOFOLLOW | O_NONBLOCK, 0));
+          cleaned_up_fd = TEMP_FAILURE_RETRY (safe_openat (dirfd, node->path, O_NOFOLLOW | O_NONBLOCK, 0)); //??
           if (cleaned_up_fd < 0)
             {
               fuse_reply_err (req, errno);
               return;
             }
-          sprintf (path, "/proc/self/fd/%d", cleaned_up_fd);
           break;
 
         default:
@@ -4107,14 +4051,14 @@ ovl_setattr (fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set, stru
   times[1].tv_nsec = UTIME_OMIT;
   if (to_set & FUSE_SET_ATTR_ATIME)
     {
-      times[0] = attr->st_atim;
+      times[0] = attr->st_atimespec;
       if (to_set & FUSE_SET_ATTR_ATIME_NOW)
         times[0].tv_nsec = UTIME_NOW;
     }
 
   if (to_set & FUSE_SET_ATTR_MTIME)
     {
-      times[1] = attr->st_mtim;
+      times[1] = attr->st_mtimespec;
       if (to_set & FUSE_SET_ATTR_MTIME_NOW)
         times[1].tv_nsec = UTIME_NOW;
     }
@@ -4505,7 +4449,7 @@ ovl_rename_exchange (fuse_req_t req, fuse_ino_t parent, const char *name,
   if (destnode == NULL)
     goto error;
 
-  ret = direct_renameat2 (srcfd, name, destfd, newname, flags);
+  ret = renameatx_np (srcfd, name, destfd, newname, flags);
   if (ret < 0)
     goto error;
 
@@ -4623,13 +4567,13 @@ ovl_rename_direct (fuse_req_t req, fuse_ino_t parent, const char *name,
 
   /* If NOREPLACE flag is given, check if we should throw an error now.
      If not, just remove the flag as it might cause problems with replacing whiteouts later.  */
-  if (flags & RENAME_NOREPLACE && destnode && ! destnode->whiteout)
+  if (flags & RENAME_EXCL && destnode && ! destnode->whiteout)
     {
       errno = EEXIST;
       goto error;
     }
   else
-    flags = flags & ~RENAME_NOREPLACE;
+    flags = flags & ~RENAME_EXCL;
 
   if (destnode)
     {
@@ -4703,7 +4647,7 @@ ovl_rename_direct (fuse_req_t req, fuse_ino_t parent, const char *name,
          If destination is a whiteout, we can EXCHANGE source and destination and reuse the old whiteout.
          If not, we can try to atomically create one with the WHITEOUT flag.  */
       if (destnode_is_whiteout)
-        ret = direct_renameat2 (srcfd, name, destfd, newname, flags | RENAME_EXCHANGE);
+        ret = renameatx_np (srcfd, name, destfd, newname, flags | RENAME_SWAP);
       else
         {
           if (! can_mknod)
@@ -4712,13 +4656,16 @@ ovl_rename_direct (fuse_req_t req, fuse_ino_t parent, const char *name,
               errno = EPERM;
             }
           else
-            ret = direct_renameat2 (srcfd, name, destfd, newname, flags | RENAME_WHITEOUT);
+            {
+            }
+          // TODO??
+          //            ret = renameatx_np (srcfd, name, destfd, newname, flags | RENAME_WHITEOUT);
         }
 
       /* If atomic whiteout creation failed, fall back to separate rename and whiteout creation.  */
       if (ret < 0)
         {
-          ret = direct_renameat2 (srcfd, name, destfd, newname, flags);
+          ret = renameatx_np (srcfd, name, destfd, newname, flags);
           if (ret < 0)
             goto error;
 
@@ -4729,7 +4676,7 @@ ovl_rename_direct (fuse_req_t req, fuse_ino_t parent, const char *name,
     }
   else
     {
-      ret = direct_renameat2 (srcfd, name, destfd, newname, flags);
+      ret = renameatx_np (srcfd, name, destfd, newname, flags);
       if (ret < 0)
         goto error;
     }
@@ -4782,7 +4729,7 @@ ovl_rename (fuse_req_t req, fuse_ino_t parent, const char *name,
       return;
     }
 
-  if (flags & RENAME_EXCHANGE)
+  if (flags & RENAME_SWAP)
     ovl_rename_exchange (req, parent, name, newparent, newname, flags);
   else
     ovl_rename_direct (req, parent, name, newparent, newname, flags);
@@ -5239,82 +5186,112 @@ ovl_fsyncdir (fuse_req_t req, fuse_ino_t ino, int datasync, struct fuse_file_inf
   return do_fsync (req, ino, datasync, -1);
 }
 
-static void
-ovl_ioctl (fuse_req_t req, fuse_ino_t ino, int cmd, void *arg,
-           struct fuse_file_info *fi, unsigned int flags,
-           const void *in_buf, size_t in_bufsz, size_t out_bufsz)
-{
-  cleanup_lock int l = enter_big_lock ();
-  struct ovl_data *lo = ovl_data (req);
-  cleanup_close int cleaned_fd = -1;
-  struct ovl_node *node;
-  int fd = -1;
-  int r = 0;
-
-  if (flags & FUSE_IOCTL_COMPAT)
-    {
-      fuse_reply_err (req, ENOSYS);
-      return;
-    }
-
-  if (UNLIKELY (ovl_debug (req)))
-    fprintf (stderr, "ovl_ioctl(ino=%" PRIu64 ", cmd=%d, arg=%p, fi=%p, flags=%d, buf=%p, in_bufsz=%zu, out_bufsz=%zu)\n",
-             ino, cmd, arg, fi, flags, in_buf, in_bufsz, out_bufsz);
-
-  node = do_lookup_file (lo, ino, NULL);
-  if (node == NULL || node->whiteout)
-    {
-      fuse_reply_err (req, ENOENT);
-      return;
-    }
-
-  switch (cmd)
-    {
-    case FS_IOC_GETVERSION:
-    case FS_IOC_GETFLAGS:
-      if (! node_dirp (node))
-        fd = fi->fh;
-      break;
-
-    case FS_IOC_SETVERSION:
-    case FS_IOC_SETFLAGS:
-      node = get_node_up (lo, node);
-      if (node == NULL)
-        {
-          fuse_reply_err (req, errno);
-          return;
-        }
-      if (in_bufsz >= sizeof (r))
-        r = *(unsigned long *) in_buf;
-      break;
-
-    default:
-      fuse_reply_err (req, ENOSYS);
-      return;
-    }
-
-  if (fd < 0)
-    {
-      fd = cleaned_fd = node->layer->ds->openat (node->layer, node->path, O_RDONLY | O_NONBLOCK, 0755);
-      if (fd < 0)
-        {
-          fuse_reply_err (req, errno);
-          return;
-        }
-    }
-
-  l = release_big_lock ();
-
-  if (ioctl (fd, cmd, &r, sizeof (r)) < 0)
-    fuse_reply_err (req, errno);
-  else
-    fuse_reply_ioctl (req, 0, &r, out_bufsz ? sizeof (r) : 0);
-}
+// static void
+// ovl_ioctl (fuse_req_t req, fuse_ino_t ino, int cmd, void *arg,
+//            struct fuse_file_info *fi, unsigned int flags,
+//            const void *in_buf, size_t in_bufsz, size_t out_bufsz)
+//{
+//   cleanup_lock int l = enter_big_lock ();
+//   struct ovl_data *lo = ovl_data (req);
+//   cleanup_close int cleaned_fd = -1;
+//   struct ovl_node *node;
+//   int fd = -1;
+//   int r = 0;
+//
+//   if (flags & FUSE_IOCTL_COMPAT)
+//     {
+//       fuse_reply_err (req, ENOSYS);
+//       return;
+//     }
+//
+//   if (UNLIKELY (ovl_debug (req)))
+//     fprintf (stderr, "ovl_ioctl(ino=%" PRIu64 ", cmd=%d, arg=%p, fi=%p, flags=%d, buf=%p, in_bufsz=%zu, out_bufsz=%zu)\n",
+//              ino, cmd, arg, fi, flags, in_buf, in_bufsz, out_bufsz);
+//
+//   node = do_lookup_file (lo, ino, NULL);
+//   if (node == NULL || node->whiteout)
+//     {
+//       fuse_reply_err (req, ENOENT);
+//       return;
+//     }
+//
+//   switch (cmd)
+//     {
+//     case FS_IOC_GETVERSION:
+//     case FS_IOC_GETFLAGS:
+//       if (! node_dirp (node))
+//         fd = fi->fh;
+//       break;
+//
+//     case FS_IOC_SETVERSION:
+//     case FS_IOC_SETFLAGS:
+//       node = get_node_up (lo, node);
+//       if (node == NULL)
+//         {
+//           fuse_reply_err (req, errno);
+//           return;
+//         }
+//       if (in_bufsz >= sizeof (r))
+//         r = *(unsigned long *) in_buf;
+//       break;
+//
+//     default:
+//       fuse_reply_err (req, ENOSYS);
+//       return;
+//     }
+//
+//   if (fd < 0)
+//     {
+//       fd = cleaned_fd = node->layer->ds->openat (node->layer, node->path, O_RDONLY | O_NONBLOCK, 0755);
+//       if (fd < 0)
+//         {
+//           fuse_reply_err (req, errno);
+//           return;
+//         }
+//     }
+//
+//   l = release_big_lock ();
+//
+//   if (ioctl (fd, cmd, &r, sizeof (r)) < 0)
+//     fuse_reply_err (req, errno);
+//   else
+//     fuse_reply_ioctl (req, 0, &r, out_bufsz ? sizeof (r) : 0);
+// }
 
 static int
 direct_fallocate (struct ovl_layer *l, int fd, int mode, off_t offset, off_t len)
 {
-  return fallocate (fd, mode, offset, len);
+  // copy from https://github.com/macfuse/demo/blob/ca5d4b94d97f3b595cbf4975fff03a186305f323/LoopbackFS-C/loopback/loopback.c#L873
+  fstore_t fstore;
+
+  if (! (mode & PREALLOCATE))
+    {
+      return -ENOTSUP;
+    }
+
+  fstore.fst_flags = 0;
+  if (mode & ALLOCATECONTIG)
+    {
+      fstore.fst_flags |= F_ALLOCATECONTIG;
+    }
+  if (mode & ALLOCATEALL)
+    {
+      fstore.fst_flags |= F_ALLOCATEALL;
+    }
+
+  if (mode & ALLOCATEFROMPEOF)
+    {
+      fstore.fst_posmode = F_PEOFPOSMODE;
+    }
+  else if (mode & ALLOCATEFROMVOL)
+    {
+      fstore.fst_posmode = F_VOLPOSMODE;
+    }
+
+  fstore.fst_offset = offset;
+  fstore.fst_length = len;
+
+  return fcntl (fd, F_PREALLOCATE, &fstore);
 }
 
 static void
@@ -5446,7 +5423,7 @@ static struct fuse_lowlevel_ops ovl_oper = {
   .readlink = ovl_readlink,
   .opendir = ovl_opendir,
   .readdir = ovl_readdir,
-  .readdirplus = ovl_readdirplus,
+  //  .readdirplus = ovl_readdirplus,
   .releasedir = ovl_releasedir,
   .create = ovl_create,
   .open = ovl_open,
@@ -5463,28 +5440,32 @@ static struct fuse_lowlevel_ops ovl_oper = {
   .link = ovl_link,
   .fsync = ovl_fsync,
   .fsyncdir = ovl_fsyncdir,
-  .ioctl = ovl_ioctl,
+  //  .ioctl = ovl_ioctl,
   .fallocate = ovl_fallocate,
 #if HAVE_COPY_FILE_RANGE && HAVE_FUSE_COPY_FILE_RANGE
   .copy_file_range = ovl_copy_file_range,
 #endif
 };
 
+static bool want_to_print_help = false;
+static bool want_to_show_version = false;
+
 static int
 fuse_opt_proc (void *data, const char *arg, int key, struct fuse_args *outargs)
 {
   struct ovl_data *ovl_data = data;
-
   if (strcmp (arg, "-f") == 0)
     return 1;
-  if (strcmp (arg, "--help") == 0)
-    return 1;
-  if (strcmp (arg, "-h") == 0)
-    return 1;
-  if (strcmp (arg, "--version") == 0)
-    return 1;
-  if (strcmp (arg, "-V") == 0)
-    return 1;
+  if (strcmp (arg, "--help") == 0 || strcmp (arg, "-h") == 0)
+    {
+      want_to_print_help = true;
+      return 1;
+    }
+  if (strcmp (arg, "--version") == 0 || strcmp (arg, "-V") == 0)
+    {
+      want_to_show_version = true;
+      return 1;
+    }
   if ((strcmp (arg, "--debug") == 0) || (strcmp (arg, "-d") == 0) || (strcmp (arg, "debug") == 0))
     {
       ovl_data->debug = 1;
@@ -5619,6 +5600,12 @@ load_default_plugins ()
   return plugins;
 }
 
+struct fuse_cmdline_opts
+{
+  int multithreaded;
+  int foreground;
+};
+
 int
 main (int argc, char *argv[])
 {
@@ -5647,10 +5634,7 @@ main (int argc, char *argv[])
     .writeback = 1,
     .volatile_mode = 0,
   };
-  struct fuse_loop_config fuse_conf = {
-    .clone_fd = 1,
-    .max_idle_threads = 10,
-  };
+
   int ret = -1;
   cleanup_layer struct ovl_layer *layers = NULL;
   struct ovl_layer *tmp_layer = NULL;
@@ -5659,28 +5643,19 @@ main (int argc, char *argv[])
   memset (&opts, 0, sizeof (opts));
   if (fuse_opt_parse (&args, &lo, ovl_opts, fuse_opt_proc) == -1)
     error (EXIT_FAILURE, 0, "error parsing options");
-  if (fuse_parse_cmdline (&args, &opts) != 0)
+  if (fuse_parse_cmdline (&args, nil, &opts.multithreaded, &opts.foreground) != 0)
     error (EXIT_FAILURE, 0, "error parsing cmdline");
 
-  if (opts.mountpoint)
-    free (opts.mountpoint);
-
-  read_overflowids ();
 
   pthread_mutex_init (&lock, PTHREAD_MUTEX_DEFAULT);
 
-  if (opts.show_help)
+  if (want_to_print_help)
     {
-      printf ("usage: %s [options] <mountpoint>\n\n", argv[0]);
-      fuse_cmdline_help ();
-      fuse_lowlevel_help ();
       exit (EXIT_SUCCESS);
     }
-  else if (opts.show_version)
+  if (want_to_show_version)
     {
-      printf ("fuse-overlayfs: version %s\n", PACKAGE_VERSION);
-      printf ("FUSE library version %s\n", fuse_pkgversion ());
-      fuse_lowlevel_version ();
+      fprintf (stderr, "fuse-overlayfs: version %s\n", PACKAGE_VERSION);
       exit (EXIT_SUCCESS);
     }
 
@@ -5708,7 +5683,6 @@ main (int argc, char *argv[])
 
   set_limits ();
   check_can_mknod (&lo);
-  check_writeable_proc ();
 
   if (lo.volatile_mode)
     lo.fsync = 0;
@@ -5783,7 +5757,7 @@ main (int argc, char *argv[])
           else
             error (EXIT_FAILURE, 0, "invalid value for xattr_permissions");
 
-          s = fgetxattr (get_upper_layer (&lo)->fd, name, data, sizeof (data));
+          s = fgetxattr (get_upper_layer (&lo)->fd, name, data, sizeof (data), 0, 0);
           if (s < 0)
             {
               bool found = false;
@@ -5794,18 +5768,18 @@ main (int argc, char *argv[])
 
               for (l = get_lower_layers (&lo); l; l = l->next)
                 {
-                  s = fgetxattr (l->fd, name, data, sizeof (data));
+                  s = fgetxattr (l->fd, name, data, sizeof (data), 0, 0);
                   if (s < 0 && errno != ENODATA)
                     error (EXIT_FAILURE, errno, "fgetxattr mode from lower layer");
                   if (s < 0 && lo.xattr_permissions == 2)
                     {
-                      s = fgetxattr (l->fd, XATTR_OVERRIDE_CONTAINERS_STAT, data, sizeof (data));
+                      s = fgetxattr (l->fd, XATTR_OVERRIDE_CONTAINERS_STAT, data, sizeof (data), 0, 0);
                       if (s < 0 && errno != ENODATA)
                         error (EXIT_FAILURE, errno, "fgetxattr mode from lower layer");
                     }
                   if (s > 0)
                     {
-                      ret = fsetxattr (get_upper_layer (&lo)->fd, name, data, s, 0);
+                      ret = fsetxattr (get_upper_layer (&lo)->fd, name, data, s, 0, 0);
                       if (ret < 0)
                         error (EXIT_FAILURE, errno, "fsetxattr mode to upper layer");
                       found = true;
@@ -5865,11 +5839,18 @@ main (int argc, char *argv[])
   umask (0);
   disable_locking = ! lo.threaded;
 
-  se = fuse_session_new (&args, &ovl_oper, sizeof (ovl_oper), &lo);
+  // demo for main https://github.com/osxfuse/filesystems/blob/aee39765ffe32b426a1089f617d21bff387f5c91/filesystems-c/clock/clock_ll.c#L189
+  struct fuse_chan *ch = fuse_mount (lo.mountpoint, &args);
+  if (ch != NULL)
+    {
+      error (0, errno, "cannot create FUSE mount chan");
+      goto err_out0;
+    }
+  se = fuse_lowlevel_new (&args, &ovl_oper, sizeof (ovl_oper), &lo);
   lo.se = se;
   if (se == NULL)
     {
-      error (0, errno, "cannot create FUSE session");
+      error (0, errno, "cannot create FUSE mount chan");
       goto err_out1;
     }
   if (fuse_set_signal_handlers (se) != 0)
@@ -5880,24 +5861,22 @@ main (int argc, char *argv[])
 
   signal (SIGUSR1, print_stats);
 
-  if (fuse_session_mount (se, lo.mountpoint) != 0)
-    {
-      error (0, errno, "cannot mount");
-      goto err_out3;
-    }
+  fuse_session_add_chan (se, ch);
   fuse_daemonize (opts.foreground);
 
   if (lo.threaded)
-    ret = fuse_session_loop_mt (se, &fuse_conf);
+    ret = fuse_session_loop_mt (se);
   else
     ret = fuse_session_loop (se);
 
-  fuse_session_unmount (se);
 err_out3:
   fuse_remove_signal_handlers (se);
+  fuse_session_remove_chan (ch);
 err_out2:
   fuse_session_destroy (se);
 err_out1:
+  fuse_unmount (lo.mountpoint, ch);
+err_out0:
 
   for (tmp_layer = lo.layers; tmp_layer; tmp_layer = tmp_layer->next)
     tmp_layer->ds->cleanup (tmp_layer);
