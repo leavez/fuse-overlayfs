@@ -574,7 +574,7 @@ do_fchmod (struct ovl_data *lo, int fd, mode_t mode)
 
       st.st_uid = 0;
       st.st_gid = 0;
-      if (override_mode (upper, fd, NULL, NULL, &st) < 0 && errno != ENODATA)
+      if (override_mode (upper, fd, NULL, NULL, &st) < 0 && errno != ENOATTR)
         return -1;
 
       return write_permission_xattr (lo, fd, NULL, st.st_uid, st.st_gid, mode);
@@ -600,7 +600,7 @@ do_chmod (struct ovl_data *lo, const char *path, mode_t mode)
 
       st.st_uid = 0;
       st.st_gid = 0;
-      if (override_mode (upper, -1, path, NULL, &st) < 0 && errno != ENODATA)
+      if (override_mode (upper, -1, path, NULL, &st) < 0 && errno != ENOATTR)
         return -1;
 
       return write_permission_xattr (lo, -1, path, st.st_uid, st.st_gid, mode);
@@ -652,15 +652,14 @@ is_directory_opaque (struct ovl_layer *l, const char *path)
   ssize_t s;
 
   s = l->ds->getxattr (l, path, PRIVILEGED_OPAQUE_XATTR, b, sizeof (b));
-  printf("%d", errno);
-  if (s < 0 && errno == ENODATA)
+  if (s < 0 && errno == ENOATTR)
     s = l->ds->getxattr (l, path, UNPRIVILEGED_OPAQUE_XATTR, b, sizeof (b));
-  if (s < 0 && errno == ENODATA)
+  if (s < 0 && errno == ENOATTR)
     s = l->ds->getxattr (l, path, OPAQUE_XATTR, b, sizeof (b));
 
   if (s < 0)
     {
-      if (errno == ENOTSUP || errno == ENODATA)
+      if (errno == ENOTSUP || errno == ENOATTR)
         {
           char whiteout_opq_path[PATH_MAX];
 
@@ -2502,7 +2501,7 @@ inherit_acl (struct ovl_data *lo, struct ovl_node *parent, int targetfd, const c
   s = safe_read_xattr (&v, dfd, ACL_XATTR, 4096);
   if (s < 0)
     {
-      if (errno == ENODATA || errno == ENOTSUP)
+      if (errno == ENOATTR || errno == ENOTSUP)
         return 0;
       return -1;
     }
@@ -2626,7 +2625,7 @@ ovl_getxattr (fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
 
   if (! can_access_xattr (name))
     {
-      fuse_reply_err (req, ENODATA);
+      fuse_reply_err (req, ENOATTR);
       return;
     }
 
@@ -2942,7 +2941,7 @@ create_node_directory (struct ovl_data *lo, struct ovl_node *src)
   times[0] = st.st_atimespec;
   times[1] = st.st_mtimespec;
 
-  if (override_mode (src->layer, sfd, NULL, NULL, &st) < 0 && errno != ENODATA && errno != EOPNOTSUPP)
+  if (override_mode (src->layer, sfd, NULL, NULL, &st) < 0 && errno != ENOATTR && errno != EOPNOTSUPP)
     return -1;
 
   ret = create_directory (lo, get_upper_layer (lo)->fd, src->path, times, src->parent, sfd, st.st_uid, st.st_gid, st.st_mode, false, NULL);
@@ -5763,18 +5762,18 @@ main (int argc, char *argv[])
               bool found = false;
               struct ovl_layer *l;
 
-              if (errno != ENODATA)
+              if (errno != ENOATTR)
                 error (EXIT_FAILURE, errno, "read xattr `%s` from upperdir", name);
 
               for (l = get_lower_layers (&lo); l; l = l->next)
                 {
                   s = fgetxattr (l->fd, name, data, sizeof (data), 0, 0);
-                  if (s < 0 && errno != ENODATA)
+                  if (s < 0 && errno != ENOATTR)
                     error (EXIT_FAILURE, errno, "fgetxattr mode from lower layer");
                   if (s < 0 && lo.xattr_permissions == 2)
                     {
                       s = fgetxattr (l->fd, XATTR_OVERRIDE_CONTAINERS_STAT, data, sizeof (data), 0, 0);
-                      if (s < 0 && errno != ENODATA)
+                      if (s < 0 && errno != ENOATTR)
                         error (EXIT_FAILURE, errno, "fgetxattr mode from lower layer");
                     }
                   if (s > 0)

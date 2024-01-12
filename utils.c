@@ -276,7 +276,7 @@ override_mode (struct ovl_layer *l, int fd, const char *abs_path, const char *pa
       else
         {
           ret = getxattr (full_path, xattr_name, buf, sizeof (buf) - 1, 0, XATTR_NOFOLLOW);
-          if (ret < 0 && errno == ENODATA)
+          if (ret < 0 && errno == ENOATTR)
             return 0;
         }
 
