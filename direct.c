@@ -56,7 +56,7 @@ direct_listxattr (struct ovl_layer *l, const char *path, char *buf, size_t size)
 }
 
 static int
-direct_getxattr (struct ovl_layer *l, const char *path, const char *name, char *buf, size_t size)
+direct_getxattr (struct ovl_layer *l, const char *path, const char *name, char *buf, size_t size, uint32_t position)
 {
   char full_path[PATH_MAX];
   int ret;
@@ -66,7 +66,7 @@ direct_getxattr (struct ovl_layer *l, const char *path, const char *name, char *
       errno = ENAMETOOLONG;
       return -1;
     }
-  return getxattr (full_path, name, buf, size, 0, XATTR_NOFOLLOW);
+  return getxattr (full_path, name, buf, size, position, XATTR_NOFOLLOW);
 }
 
 static int

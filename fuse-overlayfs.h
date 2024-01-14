@@ -154,7 +154,7 @@ struct data_source
   int (*closedir) (void *dirp);
   int (*openat) (struct ovl_layer *l, const char *path, int flags, mode_t mode);
   int (*listxattr) (struct ovl_layer *l, const char *path, char *buf, size_t size);
-  int (*getxattr) (struct ovl_layer *l, const char *path, const char *name, char *buf, size_t size);
+  int (*getxattr) (struct ovl_layer *l, const char *path, const char *name, char *buf, size_t size, uint32_t position);
   ssize_t (*readlinkat) (struct ovl_layer *l, const char *path, char *buf, size_t bufsiz);
   bool (*support_acls) (struct ovl_layer *l);
 };
