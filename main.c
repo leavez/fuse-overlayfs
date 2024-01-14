@@ -5840,7 +5840,7 @@ main (int argc, char *argv[])
 
   // demo for main https://github.com/osxfuse/filesystems/blob/aee39765ffe32b426a1089f617d21bff387f5c91/filesystems-c/clock/clock_ll.c#L189
   struct fuse_chan *ch = fuse_mount (lo.mountpoint, &args);
-  if (ch != NULL)
+  if (ch == NULL)
     {
       error (0, errno, "cannot create FUSE mount chan");
       goto err_out0;
@@ -5849,7 +5849,7 @@ main (int argc, char *argv[])
   lo.se = se;
   if (se == NULL)
     {
-      error (0, errno, "cannot create FUSE mount chan");
+      error (0, errno, "cannot create FUSE session");
       goto err_out1;
     }
   if (fuse_set_signal_handlers (se) != 0)
