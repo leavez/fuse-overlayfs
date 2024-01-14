@@ -73,7 +73,8 @@ struct ovl_mapping
 
 struct ovl_data
 {
-  struct fuse_session *se;
+  struct fuse_chan *ch;
+//  struct fuse_session *se;
   char *uid_str;
   char *gid_str;
   struct ovl_mapping *uid_mappings;
