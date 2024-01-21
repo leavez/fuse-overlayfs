@@ -3065,12 +3065,13 @@ copyup (struct ovl_data *lo, struct ovl_node *node)
     {
       for (int i = 0; i < 2; i++)
         {
-          if (fclonefileat (sfd, lo->workdir_fd, wd_tmp_file_name, CLONE_ACL) >= 0)
+          if (TEMP_FAILURE_RETRY(fclonefileat (sfd, lo->workdir_fd, wd_tmp_file_name, CLONE_ACL) >= 0))
             data_copied = true;
           else if (errno == ENOTSUP || errno == EINVAL)
             {
               /* Fallback to data copy and don't attempt again FICLONE.  */
               support_reflinks = false;
+              fprintf(stderr, "copyup: clonefile is not supported, fallback to plain copy");
               break;
             }
           else if (errno == EEXIST)
@@ -3078,10 +3079,7 @@ copyup (struct ovl_data *lo, struct ovl_node *node)
               if (unlinkat (lo->workdir_fd, wd_tmp_file_name, 0) < 0)
                 goto exit;
             }
-          else
-            {
-              break;
-            }
+          break;
         }
     }
 
