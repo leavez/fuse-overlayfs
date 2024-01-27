@@ -74,6 +74,7 @@
        __result; }))
 #endif
 
+#define __PRI_64_LENGTH_MODIFIER__ "l"
 static bool disable_locking;
 static pthread_mutex_t lock;
 
@@ -125,7 +126,7 @@ cleanup_lockp (int *l)
 #  define FICLONE _IOW (0x94, 9, int)
 #endif
 
-#if defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__ >= 6) && ! defined __cplusplus
+#if __APPLE__ || (defined(__GNUC__) && (__GNUC__ > 4 || __GNUC__ == 4 && __GNUC_MINOR__ >= 6) && ! defined __cplusplus)
 _Static_assert (sizeof (fuse_ino_t) >= sizeof (uintptr_t),
                 "fuse_ino_t too small to hold uintptr_t values!");
 #else
