@@ -3353,7 +3353,7 @@ do_rm (fuse_req_t req, fuse_ino_t parent, const char *name, bool dirp)
   node_set_name (&key, (char *) name);
 
   rm = hash_delete (pnode->children, &key);
-  fuse_lowlevel_notify_inval_inode (lo->ch, node_to_inode (node), -1, 0);
+  // fuse_lowlevel_notify_inval_inode (lo->ch, node_to_inode (node), -1, 0);
   if (rm)
     {
       ret = hide_node (lo, rm, true);
@@ -3878,9 +3878,9 @@ ovl_create (fuse_req_t req, fuse_ino_t parent, const char *name,
     }
 
   p = do_lookup_file (lo, parent, NULL);
-  /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
-  if (p && p->in_readdir)
-    fuse_lowlevel_notify_inval_inode (lo->ch, parent, 0, 0);
+  // /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
+  // if (p && p->in_readdir)
+  //  fuse_lowlevel_notify_inval_inode (lo->ch, parent, 0, 0);
 
   if (node == NULL || do_getattr (req, &e, node, fd, NULL) < 0)
     {
@@ -4730,13 +4730,13 @@ ovl_rename (fuse_req_t req, fuse_ino_t parent, const char *name,
 //  else
     ovl_rename_direct (req, parent, name, newparent, newname, 0);
 
-  /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
-  p = do_lookup_file (lo, parent, NULL);
-  if (p && p->in_readdir)
-    fuse_lowlevel_notify_inval_inode (lo->ch, parent, 0, 0);
-  p = do_lookup_file (lo, newparent, NULL);
-  if (p && p->in_readdir)
-    fuse_lowlevel_notify_inval_inode (lo->ch, newparent, 0, 0);
+  //  /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
+  //  p = do_lookup_file (lo, parent, NULL);
+  //  if (p && p->in_readdir)
+  //    fuse_lowlevel_notify_inval_inode (lo->ch, parent, 0, 0);
+  //  p = do_lookup_file (lo, newparent, NULL);
+  //  if (p && p->in_readdir)
+  //    fuse_lowlevel_notify_inval_inode (lo->ch, newparent, 0, 0);
 }
 
 static void
@@ -4961,9 +4961,9 @@ ovl_mknod (fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode, dev
       return;
     }
 
-  /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
-  if (pnode->in_readdir)
-    fuse_lowlevel_notify_inval_inode (lo->ch, parent, 0, 0);
+  //  /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
+  //  if (pnode->in_readdir)
+  //    fuse_lowlevel_notify_inval_inode (lo->ch, parent, 0, 0);
 
   e.ino = node_to_inode (node);
   e.attr_timeout = get_timeout (lo);
