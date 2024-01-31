@@ -5859,7 +5859,11 @@ main (int argc, char *argv[])
   signal (SIGUSR1, print_stats);
 
   fuse_session_add_chan (se, ch);
-  fuse_daemonize (opts.foreground);
+  if (fuse_daemonize (opts.foreground) != 0)
+    {
+      error (0, errno, "cannot daemonize");
+      goto err_out3;
+    }
 
   if (lo.threaded)
     ret = fuse_session_loop_mt (se);
