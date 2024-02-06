@@ -18,5 +18,7 @@ add_executable(${MAIN} ${SRCs} ${HEADERs} ${LIB_SRCs} ${LIB_HEADERs}  ${README})
 target_include_directories(${MAIN} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib "/usr/local/include/fuse")
 target_link_directories(${MAIN} PRIVATE "/usr/local/lib")
 target_link_libraries(${MAIN} PRIVATE osxfuse pthread)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_FILE_OFFSET_BITS=64 -D_DARWIN_USE_64_BIT_INODE -DFUSE_USE_VERSION=26")
+
 
 

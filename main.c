@@ -75,6 +75,7 @@
 #endif
 
 #define __PRI_64_LENGTH_MODIFIER__ "l"
+
 static bool disable_locking;
 static pthread_mutex_t lock;
 
@@ -406,6 +407,12 @@ ovl_init (void *userdata, struct fuse_conn_info *conn)
   conn->want |= FUSE_CAP_DONT_MASK | FUSE_CAP_SPLICE_READ | FUSE_CAP_SPLICE_WRITE | FUSE_CAP_SPLICE_MOVE; // ??
   //  if (lo->writeback)
   //    conn->want |= FUSE_CAP_WRITEBACK_CACHE;
+}
+
+static void
+ovl_destroy (void *userdata)
+{
+  // do nothing
 }
 
 static struct ovl_layer *
@@ -3066,13 +3073,13 @@ copyup (struct ovl_data *lo, struct ovl_node *node)
     {
       for (int i = 0; i < 2; i++)
         {
-          if (TEMP_FAILURE_RETRY(fclonefileat (sfd, lo->workdir_fd, wd_tmp_file_name, CLONE_ACL) >= 0))
+          if (TEMP_FAILURE_RETRY (fclonefileat (sfd, lo->workdir_fd, wd_tmp_file_name, CLONE_ACL) >= 0))
             data_copied = true;
           else if (errno == ENOTSUP || errno == EINVAL)
             {
               /* Fallback to data copy and don't attempt again FICLONE.  */
               support_reflinks = false;
-              fprintf(stderr, "copyup: clonefile is not supported, fallback to plain copy");
+              fprintf (stderr, "copyup: clonefile is not supported, fallback to plain copy");
               break;
             }
           else if (errno == EEXIST)
@@ -4369,128 +4376,128 @@ ovl_symlink (fuse_req_t req, const char *link, fuse_ino_t parent, const char *na
   fuse_reply_entry (req, &e);
 }
 
-//static void
-//ovl_rename_exchange (fuse_req_t req, fuse_ino_t parent, const char *name,
-//                     fuse_ino_t newparent, const char *newname,
-//                     unsigned int flags)
+// static void
+// ovl_rename_exchange (fuse_req_t req, fuse_ino_t parent, const char *name,
+//                      fuse_ino_t newparent, const char *newname,
+//                      unsigned int flags)
 //{
-//  struct ovl_node *pnode, *node, *destnode, *destpnode;
-//  struct ovl_data *lo = ovl_data (req);
-//  int ret;
-//  cleanup_close int srcfd = -1;
-//  cleanup_close int destfd = -1;
-//  struct ovl_node *rm1, *rm2;
-//  char *tmp;
+//   struct ovl_node *pnode, *node, *destnode, *destpnode;
+//   struct ovl_data *lo = ovl_data (req);
+//   int ret;
+//   cleanup_close int srcfd = -1;
+//   cleanup_close int destfd = -1;
+//   struct ovl_node *rm1, *rm2;
+//   char *tmp;
 //
-//  node = do_lookup_file (lo, parent, name);
-//  if (node == NULL || node->whiteout)
-//    {
-//      fuse_reply_err (req, ENOENT);
-//      return;
-//    }
+//   node = do_lookup_file (lo, parent, name);
+//   if (node == NULL || node->whiteout)
+//     {
+//       fuse_reply_err (req, ENOENT);
+//       return;
+//     }
 //
-//  if (node_dirp (node))
-//    {
-//      node = reload_dir (lo, node);
-//      if (node == NULL)
-//        {
-//          fuse_reply_err (req, errno);
-//          return;
-//        }
+//   if (node_dirp (node))
+//     {
+//       node = reload_dir (lo, node);
+//       if (node == NULL)
+//         {
+//           fuse_reply_err (req, errno);
+//           return;
+//         }
 //
-//      if (node->layer != get_upper_layer (lo) || node->last_layer != get_upper_layer (lo))
-//        {
-//          fuse_reply_err (req, EXDEV);
-//          return;
-//        }
-//    }
-//  pnode = node->parent;
+//       if (node->layer != get_upper_layer (lo) || node->last_layer != get_upper_layer (lo))
+//         {
+//           fuse_reply_err (req, EXDEV);
+//           return;
+//         }
+//     }
+//   pnode = node->parent;
 //
-//  destpnode = do_lookup_file (lo, newparent, NULL);
-//  destnode = NULL;
+//   destpnode = do_lookup_file (lo, newparent, NULL);
+//   destnode = NULL;
 //
-//  pnode = get_node_up (lo, pnode);
-//  if (pnode == NULL)
-//    goto error;
+//   pnode = get_node_up (lo, pnode);
+//   if (pnode == NULL)
+//     goto error;
 //
-//  ret = TEMP_FAILURE_RETRY (safe_openat (node_dirfd (pnode), pnode->path, O_DIRECTORY, 0));
-//  if (ret < 0)
-//    goto error;
-//  srcfd = ret;
+//   ret = TEMP_FAILURE_RETRY (safe_openat (node_dirfd (pnode), pnode->path, O_DIRECTORY, 0));
+//   if (ret < 0)
+//     goto error;
+//   srcfd = ret;
 //
-//  destpnode = get_node_up (lo, destpnode);
-//  if (destpnode == NULL)
-//    goto error;
+//   destpnode = get_node_up (lo, destpnode);
+//   if (destpnode == NULL)
+//     goto error;
 //
-//  ret = TEMP_FAILURE_RETRY (safe_openat (node_dirfd (destpnode), destpnode->path, O_DIRECTORY, 0));
-//  if (ret < 0)
-//    goto error;
-//  destfd = ret;
+//   ret = TEMP_FAILURE_RETRY (safe_openat (node_dirfd (destpnode), destpnode->path, O_DIRECTORY, 0));
+//   if (ret < 0)
+//     goto error;
+//   destfd = ret;
 //
-//  destnode = do_lookup_file (lo, newparent, newname);
+//   destnode = do_lookup_file (lo, newparent, newname);
 //
-//  node = get_node_up (lo, node);
-//  if (node == NULL)
-//    goto error;
+//   node = get_node_up (lo, node);
+//   if (node == NULL)
+//     goto error;
 //
-//  if (destnode == NULL)
-//    {
-//      errno = ENOENT;
-//      goto error;
-//    }
-//  if (node_dirp (node) && destnode->last_layer != get_upper_layer (lo))
-//    {
-//      fuse_reply_err (req, EXDEV);
-//      return;
-//    }
-//  destnode = get_node_up (lo, destnode);
-//  if (destnode == NULL)
-//    goto error;
+//   if (destnode == NULL)
+//     {
+//       errno = ENOENT;
+//       goto error;
+//     }
+//   if (node_dirp (node) && destnode->last_layer != get_upper_layer (lo))
+//     {
+//       fuse_reply_err (req, EXDEV);
+//       return;
+//     }
+//   destnode = get_node_up (lo, destnode);
+//   if (destnode == NULL)
+//     goto error;
 //
-//  ret = renameatx_np (srcfd, name, destfd, newname, flags);
-//  if (ret < 0)
-//    goto error;
+//   ret = renameatx_np (srcfd, name, destfd, newname, flags);
+//   if (ret < 0)
+//     goto error;
 //
-//  rm1 = hash_delete (destpnode->children, destnode);
-//  rm2 = hash_delete (pnode->children, node);
+//   rm1 = hash_delete (destpnode->children, destnode);
+//   rm2 = hash_delete (pnode->children, node);
 //
-//  tmp = node->path;
-//  node->path = destnode->path;
-//  destnode->path = tmp;
+//   tmp = node->path;
+//   node->path = destnode->path;
+//   destnode->path = tmp;
 //
-//  tmp = node->name;
-//  node_set_name (node, destnode->name);
-//  node_set_name (destnode, tmp);
+//   tmp = node->name;
+//   node_set_name (node, destnode->name);
+//   node_set_name (destnode, tmp);
 //
-//  node = insert_node (destpnode, node, true);
-//  if (node == NULL)
-//    {
-//      node_free (rm1);
-//      node_free (rm2);
-//      goto error;
-//    }
-//  destnode = insert_node (pnode, destnode, true);
-//  if (destnode == NULL)
-//    {
-//      node_free (rm1);
-//      node_free (rm2);
-//      goto error;
-//    }
-//  if ((update_paths (node) < 0) || (update_paths (destnode) < 0))
-//    goto error;
+//   node = insert_node (destpnode, node, true);
+//   if (node == NULL)
+//     {
+//       node_free (rm1);
+//       node_free (rm2);
+//       goto error;
+//     }
+//   destnode = insert_node (pnode, destnode, true);
+//   if (destnode == NULL)
+//     {
+//       node_free (rm1);
+//       node_free (rm2);
+//       goto error;
+//     }
+//   if ((update_paths (node) < 0) || (update_paths (destnode) < 0))
+//     goto error;
 //
-//  if (delete_whiteout (lo, destfd, NULL, newname) < 0)
-//    goto error;
+//   if (delete_whiteout (lo, destfd, NULL, newname) < 0)
+//     goto error;
 //
-//  ret = 0;
-//  goto cleanup;
+//   ret = 0;
+//   goto cleanup;
 //
-//error:
-//  ret = -1;
+// error:
+//   ret = -1;
 //
-//cleanup:
-//  fuse_reply_err (req, ret == 0 ? 0 : errno);
-//}
+// cleanup:
+//   fuse_reply_err (req, ret == 0 ? 0 : errno);
+// }
 
 static void
 ovl_rename_direct (fuse_req_t req, fuse_ino_t parent, const char *name,
@@ -4726,10 +4733,10 @@ ovl_rename (fuse_req_t req, fuse_ino_t parent, const char *name,
       return;
     }
 
-//  if (flags & RENAME_SWAP)
-//    ovl_rename_exchange (req, parent, name, newparent, newname, flags);
-//  else
-    ovl_rename_direct (req, parent, name, newparent, newname, 0);
+  //  if (flags & RENAME_SWAP)
+  //    ovl_rename_exchange (req, parent, name, newparent, newname, flags);
+  //  else
+  ovl_rename_direct (req, parent, name, newparent, newname, 0);
 
   //  /* Make sure the cache is invalidated, if the parent is in the middle of a readdir. */
   //  p = do_lookup_file (lo, parent, NULL);
@@ -5439,6 +5446,24 @@ static struct fuse_lowlevel_ops ovl_oper = {
   .fsyncdir = ovl_fsyncdir,
   //  .ioctl = ovl_ioctl,
   .fallocate = ovl_fallocate,
+  .destroy = ovl_destroy,
+
+  //  .write = NULL,
+  .flush = NULL,
+  .getlk = NULL,
+  .setlk = NULL,
+  .bmap = NULL,
+  .ioctl = NULL,
+  .poll = NULL,
+  .retrieve_reply = NULL,
+  .flock = NULL,
+
+  .renamex = NULL,
+  .setvolname = NULL,
+  .exchange = NULL,
+  .getxtimes = NULL,
+  .setattr_x = NULL,
+
 #if HAVE_COPY_FILE_RANGE && HAVE_FUSE_COPY_FILE_RANGE
   .copy_file_range = ovl_copy_file_range,
 #endif
@@ -5642,7 +5667,6 @@ main (int argc, char *argv[])
     error (EXIT_FAILURE, 0, "error parsing options");
   if (fuse_parse_cmdline (&args, NULL, &opts.multithreaded, &opts.foreground) != 0)
     error (EXIT_FAILURE, 0, "error parsing cmdline");
-
 
   pthread_mutex_init (&lock, PTHREAD_MUTEX_DEFAULT);
 
